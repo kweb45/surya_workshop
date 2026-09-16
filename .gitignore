@@ -230,3 +230,8 @@ wandb/
 *.rar
 # Jupyter AI chat transcripts
 *.chat
+
+# Analysis files
+*.json
+unified_report.md
+variance_accounting.txt
