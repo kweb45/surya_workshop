@@ -24,7 +24,7 @@
 #   --deterministic warn   (reproducible run; see training.deterministic below)
 # =============================================================================
 
-job_id: solar_flare_forecasting
+job_id: filament_characterization
 
 
 # -----------------------------------------------------------------------------
@@ -37,15 +37,19 @@ data:
   scalers_path: ../assets/scalers.yaml
 
   # -- Input channels and temporal sampling --
+  # channels: [aia131, aia171, aia193]
+
   channels: [aia94, aia131, aia171, aia193, aia211, aia304, aia335, aia1600,
              hmi_m, hmi_bx, hmi_by, hmi_bz, hmi_v]
+
+             
   time_delta_input_minutes: [0]   # Offsets (minutes) of input frames relative to reference timestep
   time_delta_target_minutes: 60   # Step size (minutes) between forecast frames
 
   # -- Downstream label alignment (flare catalog → Surya index) --
-  flare_index_path: ../data/hek_flare_catalog.csv
-  ds_time_column: start_time      # Column in the flare catalog used as the event timestamp
-  ds_time_tolerance: 4d           # Max allowed gap between catalog and Surya timestamps
+  filament_index_path: ../data/basic_fil_data.csv
+  ds_time_column: start_time      # Column in the filament catalog used as the event timestamp
+  ds_time_tolerance: 2d           # Max allowed gap between catalog and Surya timestamps
   ds_match_direction: forward     # "forward": use solar state *before* the flare (causal)
 
   # -- Local data (only needed when the index contains relative local paths) --
@@ -79,7 +83,7 @@ data:
   #
   # If none is set and the index contains s3:// paths, the run fails immediately with a
   # suggested path — not part-way through the first epoch. ~ and $ENV_VARS are expanded.
-  s3_cache_dir: null
+  s3_cache_dir: /home/jovyan/scratch_space/surya_cache
 
   # -- S3 transfer tuning --
   # These control boto3's multipart download: how many threads download parts in

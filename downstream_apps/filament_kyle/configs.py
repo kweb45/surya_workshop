@@ -29,34 +29,34 @@ from workshop_infrastructure.configs import (  # re-exported for convenience
 
 
 @dataclass
-class FlareDataConfig(DataConfig):
-    """DataConfig plus the flare-catalog alignment settings used by ``FlareDSDataset``.
+class FilamentDataConfig(DataConfig):
+    """DataConfig plus the filament-catalog alignment settings used by ``FilamentDataset``.
 
     These four keys are what makes this app's ``data:`` section different from any other
     downstream task's. Swap them for your own when you fork.
     """
     # Path to the label catalog (relative paths resolve against the config file's dir).
-    flare_index_path: str = ""
+    filament_index_path: str = ""
     # Column in the catalog holding the event timestamp.
     ds_time_column: str = "start_time"
     # Max allowed gap when matching catalog events to Surya timesteps.
-    ds_time_tolerance: str = "4d"
+    ds_time_tolerance: str = "2d"
     # "forward" uses the solar state *before* the flare (causal prediction).
     ds_match_direction: str = "forward"
 
     # flare_index_path is a path, so it must join the base class's list to get the same
     # relative-to-the-config-file resolution. Extend this whenever you add a path field.
-    PATH_FIELDS: ClassVar[tuple[str, ...]] = DataConfig.PATH_FIELDS + ("flare_index_path",)
+    PATH_FIELDS: ClassVar[tuple[str, ...]] = DataConfig.PATH_FIELDS + ("filament_index_path",)
 
 
 # The app's entry point. Identical to load_config() except that the data: section is
 # parsed into FlareDataConfig, so the four keys above are recognized instead of rejected.
-load_flare_config = partial(load_config, data_cls=FlareDataConfig)
+load_filament_config = partial(load_config, data_cls=FilamentDataConfig)
 
 
 __all__ = [
-    "FlareDataConfig",
-    "load_flare_config",
+    "FilamentDataConfig",
+    "load_filament_config",
     # Re-exports so app code can import everything config-related from one place.
     "DataConfig",
     "OutputConfig",

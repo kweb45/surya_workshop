@@ -4,14 +4,17 @@ from typing import Callable, Literal
 from workshop_infrastructure.datasets.helio import HelioNetCDFDataset
 
 
-class FlareDSDataset(HelioNetCDFDataset):
+class FilamentDataset(HelioNetCDFDataset):
     """
     Template child class of HelioNetCDFDataset showing how to build a downstream dataset.
-    Extends the base class with a flare intensity label aligned to the Surya index.
+    Extends the base class with a filament chirality label (0 = dextral, 1 = sinistral)
+    aligned to the Surya index. ``hemisphere`` is also carried through as passthrough
+    metadata — it drives the Martin's Rule baseline, but is never fed to the model as an
+    input feature, since that would hand it the answer this comparison is meant to test for.
 
     All ``HelioNetCDFDataset`` keyword arguments (``index_path``, ``scalers``, ``channels``,
     ``s3_cache_dir``, etc.) are accepted via ``**kwargs`` and forwarded to the base class.
-    ``load_forecast_frames`` defaults to ``False`` here (flare forecasting supplies its own
+    ``load_forecast_frames`` defaults to ``False`` here (filament chirality supplies its own
     labels, so future Surya frames are never fetched); pass it explicitly to override.
 
     Additional Args:
@@ -23,7 +26,7 @@ class FlareDSDataset(HelioNetCDFDataset):
             ``(series: pd.Series) -> pd.Series``.  If ``None``, the raw intensity values are
             used as-is. Define this at the call site (e.g., in ``build_datasets()``) to keep
             normalization logic out of the dataset class.
-        ds_flare_index_path: Path to the downstream flare intensity CSV index.
+        flare_index_path: Path to the downstream flare intensity CSV index.
         ds_time_column: Column name in the flare index to use as the event timestamp.
         ds_time_tolerance: Maximum allowed time offset when matching Surya and DS indices
             (e.g., ``"15min"``). Unmatched entries are dropped.
@@ -31,7 +34,7 @@ class FlareDSDataset(HelioNetCDFDataset):
             for causal prediction (predict flares from prior solar state).
 
     Raises:
-        ValueError: If ``ds_flare_index_path`` is not provided, or if no overlap exists
+        ValueError: If ``filament_index_path`` is not provided, or if no overlap exists
             between the Surya and DS indices within the specified tolerance.
     """
 
@@ -41,7 +44,7 @@ class FlareDSDataset(HelioNetCDFDataset):
         return_surya_stack: bool = True,
         max_number_of_samples: int | None = None,
         label_transform: Callable[[pd.Series], pd.Series] | None = None,
-        ds_flare_index_path: str | None = None,
+        filament_index_path: str | None = None,
         ds_time_column: str | None = None,
         ds_time_tolerance: str | None = None,
         ds_match_direction: Literal["forward", "backward", "nearest"] = "forward",
@@ -59,21 +62,24 @@ class FlareDSDataset(HelioNetCDFDataset):
         self.return_surya_stack = return_surya_stack
 
         # Load ds index and find intersection with Surya index
-        if ds_flare_index_path is not None:
-            self.ds_index = pd.read_csv(ds_flare_index_path)
+        if filament_index_path is not None:
+            self.ds_index = pd.read_csv(filament_index_path)
         else:
-            raise ValueError("ds_flare_index_path must be provided for FlareDSDataset")
+            raise ValueError("filament_index_path must be provided for FilamentDataset")
+
+        # chirality is the prediction target. hemisphere is kept as passthrough metadata
+        # only (see __getitem__) for the Martin's Rule baseline.
+        if not self.ds_index["chirality"].isin([0, 1]).all():
+            raise ValueError("chirality column must contain only 0 (dextral) or 1 (sinistral)")
+        self.ds_index["label"] = self.ds_index["chirality"].astype(np.float32)
+
+        if self.ds_index["label"].isna().any():
+            raise ValueError("chirality must be either 0 (dextral) or 1 (sinistral)")
 
         self.ds_index["ds_index"] = pd.to_datetime(
             self.ds_index[ds_time_column]
         ).values.astype("datetime64[ns]")
         self.ds_index.sort_values("ds_index", inplace=True)
-
-        # Apply label transform if provided; otherwise use raw intensity values.
-        if label_transform is not None:
-            self.ds_index["normalized_intensity"] = label_transform(self.ds_index["intensity"])
-        else:
-            self.ds_index["normalized_intensity"] = self.ds_index["intensity"]
 
         # Create Surya valid indices and find closest match to DS index
         self.df_valid_indices = pd.DataFrame(
@@ -127,12 +133,18 @@ class FlareDSDataset(HelioNetCDFDataset):
 
         Returns:
             Dictionary containing:
-                forecast (np.float32): Normalized log10 flare intensity label.
-                ds_index (str): ISO-format timestamp from the flare index.
+                forecast (np.float32): Chirality label (0 = dextral, 1 = sinistral).
+                hemisphere (int): Passthrough metadata (0/1), not a model input — used for
+                    the Martin's Rule baseline and for reporting accuracy split by hemisphere.
+                ds_index (str): ISO-format timestamp from the filament index.
             When ``return_surya_stack=True``, also includes all keys from
             ``HelioNetCDFDataset.__getitem__`` (ts, time_delta_input, lead_time_delta, etc.).
         """
         sample = super().__getitem__(idx=idx) if self.return_surya_stack else {}
-        sample["forecast"] = self.df_valid_indices.iloc[idx]["normalized_intensity"].astype(np.float32)
+        sample["forecast"] = np.float32(self.df_valid_indices.iloc[idx]["label"])
+        sample["hemisphere"] = int(self.df_valid_indices.iloc[idx]["hemisphere"])
         sample["ds_index"] = self.df_valid_indices["ds_index"].iloc[idx].isoformat()
         return sample
+
+
+

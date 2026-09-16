@@ -228,3 +228,5 @@ wandb/
 *.gz
 *.7z
 *.rar
+# Jupyter AI chat transcripts
+*.chat
