@@ -1,0 +1,115 @@
+{
+  "messages": [
+    {
+      "body": "Now verifying end to end:",
+      "time": 1789740928.123703,
+      "mentions": [],
+      "id": "87f0a76d-67c2-4a45-b399-31d48dc63a2c",
+      "sender": "jupyter-ai-personas::jupyter_ai_acp_client::ClaudeAcpPersona",
+      "raw_time": false,
+      "type": "msg"
+    },
+    {
+      "metadata": {
+        "tool_calls": [
+          {
+            "raw_output": "rows: 34 | blanks: 0 | any NaN: False | dup ts: 0\ndtypes: int64 int64\noverlap train/val: set()\n\nsame-label pairs straddling train/val, within 30 days:\n  2010-08-01T13:42:05 [val] <-> 2010-08-14T10:12:05 [train]  gap=12 days 20:30:00\n  2012-06-14T14:12:07 [train] <-> 2012-07-12T16:48:05 [val]  gap=28 days 02:35:58\n  2012-08-14T01:25:49 [val] <-> 2012-09-02T04:00:06 [train]  gap=19 days 02:34:17\n  2015-12-16T09:36:04 [val] <-> 2015-12-28T12:12:05 [train]  gap=12 days 02:36:01\n\nMartin's Rule:\n  train n=23  acc=0.609\n  val   n=11  acc=0.545\n  all   n=34  acc=0.588\n\ntrain: 23 catalog -> 23 matched, max gap 0 days 00:06:26, missing S3 0\nval  : 11 catalog -> 11 matched, max gap 0 days 01:00:05, missing S3 0\nShell cwd was reset to /home/jovyan/surya_workshop/downstream_apps/filament_kyle/data",
+            "title": "cd surya_workshop && python - <<'PY' import pandas as pd, itertools, boto3 from botocore import UNSIGNED from botocore.config import Config f = pd.read_csv(\"downstream_apps/filament_kyle/data/full_fil_data.csv\") f[\"ts\"] = pd.to_datetime(f.start_time) print(\"rows:\", len(f), \"| blanks:\", f.isna().all(axis=1).sum(), \"| any NaN:\", f.isna().any().any(), \"| dup ts:\", f.start_time.duplicated().sum()) print(\"dtypes:\", f.hemisphere.dtype, f.chirality.dtype) print(\"overlap train/val:\", set(f[f.split=='train'].start_time) & set(f[f.split=='val'].start_time)) print(\"\\nsame-label pairs straddling train/val, within 30 days:\") for (_,a),(_,b) in itertools.combinations(f.iterrows(), 2): g = abs(b.ts-a.ts) if g <= pd.Timedelta(\"30d\") and a.split!=b.split and a.hemisphere==b.hemisphere and a.chirality==b.chirality: print(f\" {a.start_time} [{a.split}] <-> {b.start_time} [{b.split}] gap={g}\") print(\"\\nMartin's Rule:\") for s, r in f.groupby(\"split\"): print(f\" {s:5s} n={len(r):2d} acc={(r.chirality==r.hemisphere).mean():.3f}\") print(f\" all n={len(f):2d} acc={(f.chirality==f.hemisphere).mean():.3f}\") idx = pd.read_csv(\"data/indices/surya_aws_s3_full_index.csv\", usecols=[\"path\",\"timestep\",\"present\"]) idx[\"timestep\"] = pd.to_datetime(idx.timestep); idx = idx[idx.present==1] v = idx[[\"timestep\",\"path\"]].rename(columns={\"timestep\":\"valid_indices\"}).sort_values(\"valid_indices\") s3 = boto3.client(\"s3\", config=Config(signature_version=UNSIGNED)) print() for phase in [\"train\",\"val\"]: sub = f[f.split==phase].rename(columns={\"ts\":\"ds_index\"}).sort_values(\"ds_index\") m = pd.merge_asof(v, sub, right_on=\"ds_index\", left_on=\"valid_indices\", direction=\"forward\") m[\"d\"] = (m.valid_indices - m.ds_index).abs() m = m.sort_values([\"ds_index\",\"d\"]).drop_duplicates(\"ds_index\",keep=\"first\").dropna(subset=[\"ds_index\"]) kept = m[m.d <= pd.Timedelta(\"2d\")] bad = [] for p in kept.path: b,k = p.replace(\"s3://\",\"\").split(\"/\",1) try: s3.head_object(Bucket=b, Key=k) except Exception: bad.append(p) print(f\"{phase:5s}: {len(sub)} catalog -> {len(kept)} matched, max gap {kept.d.max()}, missing S3 {len(bad)}\") PY",
+            "status": "completed",
+            "kind": "execute",
+            "raw_input": {
+              "description": "Validate final catalog end to end",
+              "command": "cd /home/jovyan/surya_workshop && python - <<'PY'\nimport pandas as pd, itertools, boto3\nfrom botocore import UNSIGNED\nfrom botocore.config import Config\n\nf = pd.read_csv(\"downstream_apps/filament_kyle/data/full_fil_data.csv\")\nf[\"ts\"] = pd.to_datetime(f.start_time)\nprint(\"rows:\", len(f), \"| blanks:\", f.isna().all(axis=1).sum(),\n      \"| any NaN:\", f.isna().any().any(), \"| dup ts:\", f.start_time.duplicated().sum())\nprint(\"dtypes:\", f.hemisphere.dtype, f.chirality.dtype)\nprint(\"overlap train/val:\", set(f[f.split=='train'].start_time) & set(f[f.split=='val'].start_time))\n\nprint(\"\\nsame-label pairs straddling train/val, within 30 days:\")\nfor (_,a),(_,b) in itertools.combinations(f.iterrows(), 2):\n    g = abs(b.ts-a.ts)\n    if g <= pd.Timedelta(\"30d\") and a.split!=b.split and a.hemisphere==b.hemisphere and a.chirality==b.chirality:\n        print(f\"  {a.start_time} [{a.split}] <-> {b.start_time} [{b.split}]  gap={g}\")\n\nprint(\"\\nMartin's Rule:\")\nfor s, r in f.groupby(\"split\"):\n    print(f\"  {s:5s} n={len(r):2d}  acc={(r.chirality==r.hemisphere).mean():.3f}\")\nprint(f\"  all   n={len(f):2d}  acc={(f.chirality==f.hemisphere).mean():.3f}\")\n\nidx = pd.read_csv(\"data/indices/surya_aws_s3_full_index.csv\", usecols=[\"path\",\"timestep\",\"present\"])\nidx[\"timestep\"] = pd.to_datetime(idx.timestep); idx = idx[idx.present==1]\nv = idx[[\"timestep\",\"path\"]].rename(columns={\"timestep\":\"valid_indices\"}).sort_values(\"valid_indices\")\ns3 = boto3.client(\"s3\", config=Config(signature_version=UNSIGNED))\nprint()\nfor phase in [\"train\",\"val\"]:\n    sub = f[f.split==phase].rename(columns={\"ts\":\"ds_index\"}).sort_values(\"ds_index\")\n    m = pd.merge_asof(v, sub, right_on=\"ds_index\", left_on=\"valid_indices\", direction=\"forward\")\n    m[\"d\"] = (m.valid_indices - m.ds_index).abs()\n    m = m.sort_values([\"ds_index\",\"d\"]).drop_duplicates(\"ds_index\",keep=\"first\").dropna(subset=[\"ds_index\"])\n    kept = m[m.d <= pd.Timedelta(\"2d\")]\n    bad = []\n    for p in kept.path:\n        b,k = p.replace(\"s3://\",\"\").split(\"/\",1)\n        try: s3.head_object(Bucket=b, Key=k)\n        except Exception: bad.append(p)\n    print(f\"{phase:5s}: {len(sub)} catalog -> {len(kept)} matched, max gap {kept.d.max()}, missing S3 {len(bad)}\")\nPY"
+            },
+            "tool_call_id": "toolu_bdrk_01WQNCsn7LbGhCXhMWVYSdpu"
+          }
+        ]
+      },
+      "time": 1789740928.1249876,
+      "body": "",
+      "type": "msg",
+      "mentions": [],
+      "raw_time": false,
+      "id": "5a20caf2-2faa-4846-a210-b55df0582442",
+      "sender": "jupyter-ai-personas::jupyter_ai_acp_client::ClaudeAcpPersona"
+    },
+    {
+      "time": 1789740928.126678,
+      "raw_time": false,
+      "body": "Done. `full_fil_data.csv` now has the `split` column: **23 train / 11 val** (32%).\n\n## Cleanup applied\n\nDropped the 7 blank `,,` rows your spreadsheet left behind, and restored `hemisphere`/`chirality` to `int64` \u2014 the NaN rows had silently promoted both to `float64`, which would have written `1.0` back out.\n\n## Split\n\nStratified on hemisphere \u00d7 chirality, seeded (`SEED = 42`):\n\n```\n                   chirality 0   chirality 1\ntrain  hem 0            6             3\n       hem 1            6             8\nval    hem 0            2             2\n       hem 1            3             4\n```\n\nMartin's Rule: 0.609 train / 0.545 val / 0.588 overall. Your manual removals shifted this off the artificial 50/50 the earlier version had, which is a more honest baseline.\n\n**Verified:** 34 rows, no NaN anywhere, no duplicate timestamps, no train/val overlap, no same-label pair within 3 days (closest is 4d22h \u2014 `2011-06-02`/`2011-06-07`, both in train). Both splits resolve fully against `surya_aws_s3_full_index.csv` (23\u219223, 11\u219211, nothing lost to the `2d` tolerance) and all 34 S3 objects exist in `nasa-surya-bench`.\n\n## Script changed role\n\n`make_splits.py` no longer removes anything \u2014 since you own dedup now, it *checks* the property instead and **raises** with the offending pairs if a \u22643-day same-label pair reappears, rather than quietly splitting it. It also drops blank rows and rejects partially-empty ones. Re-running it only rewrites the `split` column; rows and labels are untouched.\n\n## Two loose ends\n\n**Stale file.** `full_fil_data_dedup.csv` from the previous turn is now superseded and carries a *different* split for a 35-row catalog. Want me to delete it? Nothing references it \u2014 the config still points at `basic_fil_data.csv` (`configs/config_script.yaml:60`), so switch that to `../data/full_fil_data.csv` when you're ready.\n\n**One physically interesting straddle.** `2012-06-14` (train) and `2012-07-12` (val) are 28d02h apart, same hemisphere and chirality. That's within a few hours of one solar rotation (27.3d), so it's plausibly the *same* filament returning on the next passage rather than a new one. Well outside your 3-day rule, so I left it \u2014 but it's the one remaining pair I'd want a second look at, since a rotation-recurrent filament in both splits leaks the same way a same-day duplicate does.",
+      "type": "msg",
+      "id": "556cb9da-06d5-4ba9-ad0f-eb21d804004e",
+      "sender": "jupyter-ai-personas::jupyter_ai_acp_client::ClaudeAcpPersona",
+      "mentions": []
+    }
+  ],
+  "users": {
+    "jupyter-ai-personas::jupyter_ai_acp_client::CodexAcpPersona": {
+      "avatar_url": "/user/kwebster/api/ai/avatars/jupyter-ai-personas%3A%3Ajupyter_ai_acp_client%3A%3ACodexAcpPersona",
+      "name": "Codex",
+      "display_name": "Codex",
+      "initials": null,
+      "color": null,
+      "username": "jupyter-ai-personas::jupyter_ai_acp_client::CodexAcpPersona",
+      "bot": true
+    },
+    "jupyter-ai-personas::jupyter_ai_jupyternaut::JupyternautPersona": {
+      "initials": null,
+      "name": "Jupyternaut",
+      "username": "jupyter-ai-personas::jupyter_ai_jupyternaut::JupyternautPersona",
+      "display_name": "Jupyternaut",
+      "avatar_url": "/user/kwebster/api/ai/avatars/jupyter-ai-personas%3A%3Ajupyter_ai_jupyternaut%3A%3AJupyternautPersona",
+      "color": null,
+      "bot": true
+    },
+    "jupyter-ai-personas::jupyter_ai_acp_client::ClaudeAcpPersona": {
+      "avatar_url": "/user/kwebster/api/ai/avatars/jupyter-ai-personas%3A%3Ajupyter_ai_acp_client%3A%3AClaudeAcpPersona",
+      "initials": null,
+      "name": "Claude",
+      "color": null,
+      "bot": true,
+      "username": "jupyter-ai-personas::jupyter_ai_acp_client::ClaudeAcpPersona",
+      "display_name": "Claude"
+    },
+    "jupyter-ai-personas::jupyter_ai_acp_client::MistralVibeAcpPersona": {
+      "bot": true,
+      "avatar_url": "/user/kwebster/api/ai/avatars/jupyter-ai-personas%3A%3Ajupyter_ai_acp_client%3A%3AMistralVibeAcpPersona",
+      "display_name": "Mistral Vibe",
+      "color": null,
+      "username": "jupyter-ai-personas::jupyter_ai_acp_client::MistralVibeAcpPersona",
+      "initials": null,
+      "name": "Mistral Vibe"
+    },
+    "jupyter-ai-personas::jupyter_ai_acp_client::CopilotAcpPersona": {
+      "display_name": "Copilot",
+      "initials": null,
+      "avatar_url": "/user/kwebster/api/ai/avatars/jupyter-ai-personas%3A%3Ajupyter_ai_acp_client%3A%3ACopilotAcpPersona",
+      "bot": true,
+      "name": "Copilot",
+      "username": "jupyter-ai-personas::jupyter_ai_acp_client::CopilotAcpPersona",
+      "color": null
+    },
+    "kwebster": {
+      "bot": false,
+      "name": "kwebster",
+      "username": "kwebster",
+      "color": "var(--jp-collaborator-color7)",
+      "initials": "k",
+      "mention_name": "kwebster",
+      "display_name": "kwebster",
+      "avatar_url": null
+    }
+  },
+  "attachments": {},
+  "metadata": {
+    "id": "d05c3246-cbe3-421f-baef-ea01e339681c",
+    "acp_config_options": {
+      "jupyter-ai-personas::jupyter_ai_acp_client::ClaudeAcpPersona": {
+        "model": "opus[1m]"
+      }
+    },
+    "acp_session_ids": {
+      "jupyter-ai-personas::jupyter_ai_acp_client::ClaudeAcpPersona": "27ff9e8f-4bd4-4859-9d33-078fecfcf408"
+    }
+  }
+}

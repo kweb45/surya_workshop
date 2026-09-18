@@ -239,6 +239,13 @@ wandb/
 # (hek_flare_catalog.csv alone is 4.9 MB) and should stay ignored.
 !downstream_apps/filament_kyle/data/full_fil_data.csv
 
+# Exception to *.chat above: the Jupyter AI transcripts in this one directory are kept as
+# a development record of how the filament catalog and the split were derived. Scoped to
+# this directory on purpose -- transcripts elsewhere stay ignored.
+# NOTE: this repo is public, and these files record whole tool-call sessions including
+# command output. Read a new transcript before you commit it.
+!downstream_apps/filament_kyle/data/*.chat
+
 # Analysis files
 *.json
 unified_report.md
