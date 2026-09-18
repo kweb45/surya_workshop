@@ -32,8 +32,18 @@ job_id: filament_characterization
 # -----------------------------------------------------------------------------
 data:
   # -- Paths (relative to this file's directory) --
-  train_data_path: ../../../data/indices/surya_aws_s3_train.csv
-  valid_data_path: ../../../data/indices/surya_aws_s3_val.csv
+  # BOTH point at the FULL index on purpose. The shipped surya_aws_s3_{train,val}.csv are
+  # carved by month and exclude 2012 entirely, where 10 of this catalog's 34 events live:
+  # against _val.csv zero events match within ds_time_tolerance and the dataset raises
+  # "No intersection between Surya and DS indices"; against _train.csv only 15/23 train and
+  # 8/11 val events survive, silently shrinking the experiment. The full index matches all
+  # 34 (23 train / 11 val).
+  #
+  # So train and val read the same file, and the ONLY thing separating the two datasets is
+  # the `split` column in full_fil_data.csv (see FilamentDataset.__init__). Do not "fix"
+  # these two lines back to the train/val pair -- that breaks the run, it does not tighten it.
+  train_data_path: ../../../data/indices/surya_aws_s3_full_index.csv
+  valid_data_path: ../../../data/indices/surya_aws_s3_full_index.csv
   scalers_path: ../assets/scalers.yaml
 
   # -- Input channels and temporal sampling --

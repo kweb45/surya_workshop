@@ -113,9 +113,35 @@ def build_helio_dataloaders(
     scalers: Any = None,
     num_workers: int | None = None,
     seed: int | None = None,
+    prefetch_factor: int | None = None,
+    persistent_workers: bool = True,
+    pin_memory: bool = True,
     **task_kwargs,
 ) -> Tuple[DataLoader, DataLoader]:
     """Build the train and validation DataLoaders described by ``cfg``.
+
+    HOST MEMORY. One Surya sample is large — ``(C, T, H, W)`` float32, which for the 13
+    channels and 4096x4096 frames of the shipped config is 0.81 GiB *per sample* — so the
+    prefetch queues, not the model, dominate RAM. Resident bytes per loader are roughly::
+
+        num_workers x prefetch_factor x batch_size x sample_bytes
+
+    and the train and validation loaders hold that **simultaneously** whenever
+    ``persistent_workers=True``, because the train pool stays alive while the validation
+    pool spawns. That sum peaks at the first validation, which is where a memory-capped
+    environment (e.g. a 60 GiB JupyterHub cgroup) kills the kernel. Worked example: 8
+    workers at the default ``prefetch_factor=2`` is 8 x 2 x 0.81 = 13 GiB per loader, 26 GiB
+    across both, before the per-process cost of 16 ``spawn``-ed interpreters.
+
+    The three arguments below are the levers, cheapest first. None changes the sample order
+    or the numerical result:
+
+    * ``prefetch_factor=1`` halves queued memory while keeping every worker reading in
+      parallel. Usually the first thing to try.
+    * ``persistent_workers=False`` tears the train pool down at epoch end, so the two pools
+      never coexist. Costs a worker respawn each epoch, which under ``spawn`` is a few
+      seconds per loader.
+    * ``num_workers`` scales memory linearly, and throughput with it — reduce last.
 
     Args:
         cfg: A ``TrainingConfig`` from ``load_config()``.
@@ -128,6 +154,14 @@ def build_helio_dataloaders(
             a bare ``shuffle=True`` seeds its sampler from whatever the global torch RNG
             state happens to be when the iterator is created, so anything that consumes
             RNG earlier in the program silently reshuffles the data.
+        prefetch_factor: Batches each worker keeps queued ahead of the consumer. ``None``
+            (default) leaves PyTorch's default of 2. Ignored when ``num_workers == 0``,
+            where PyTorch rejects it outright.
+        persistent_workers: Keep worker processes alive between epochs. ``True`` (default)
+            avoids respawn cost; ``False`` halves peak memory across the train/val boundary.
+            Ignored when ``num_workers == 0``.
+        pin_memory: Stage batches in pinned host memory for faster H2D copies. ``True``
+            (default) costs an extra pinned copy of each in-flight batch.
         **task_kwargs: Extra keyword arguments forwarded to ``dataset_cls``.
 
     Returns:
@@ -143,15 +177,17 @@ def build_helio_dataloaders(
     loader_kwargs = dict(
         batch_size=cfg.batch_size,
         num_workers=workers,
-        pin_memory=True,
+        pin_memory=pin_memory,
         drop_last=True,
     )
     if workers > 0:
         # "spawn": the dataset holds an s3fs/boto3 handle that does not survive fork.
-        # Both of these are rejected outright when num_workers == 0.
+        # These are rejected outright when num_workers == 0.
         loader_kwargs["multiprocessing_context"] = "spawn"
-        loader_kwargs["persistent_workers"] = True
+        loader_kwargs["persistent_workers"] = persistent_workers
         loader_kwargs["worker_init_fn"] = partial(_seed_worker, base_seed=base_seed)
+        if prefetch_factor is not None:
+            loader_kwargs["prefetch_factor"] = prefetch_factor
 
     # An explicit generator makes the shuffle a function of the seed alone, rather than
     # of the global RNG state at the moment the iterator happens to be created.
