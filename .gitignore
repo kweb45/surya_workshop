@@ -246,6 +246,15 @@ wandb/
 # command output. Read a new transcript before you commit it.
 !downstream_apps/filament_kyle/data/*.chat
 
+# Four more transcripts from the filament_kyle root, covering how the baseline notebook
+# was built and how the fine-tuning approach was chosen. Listed individually rather than
+# as filament_kyle/*.chat: the untitled*.chat scratch sessions in the same directory are
+# deliberately NOT tracked. Each was read before committing (see the note above).
+!downstream_apps/filament_kyle/understanding_finetuning.chat
+!downstream_apps/filament_kyle/deciding_finetuning_path.chat
+!downstream_apps/filament_kyle/brainstorming.chat
+!downstream_apps/filament_kyle/step1_making_baseline_notebook.chat
+
 # Analysis files
 *.json
 unified_report.md
