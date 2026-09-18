@@ -26,7 +26,11 @@ class FilamentDataset(HelioNetCDFDataset):
             ``(series: pd.Series) -> pd.Series``.  If ``None``, the raw intensity values are
             used as-is. Define this at the call site (e.g., in ``build_datasets()``) to keep
             normalization logic out of the dataset class.
-        flare_index_path: Path to the downstream flare intensity CSV index.
+        filament_index_path: Path to the downstream filament chirality CSV index. If the CSV
+            has a ``split`` column, only rows whose value equals this dataset's ``phase``
+            ("train" / "val") are used, so the train/val split is defined by the catalog
+            rather than by which Surya index file is read. Without that column the whole
+            catalog is used, and the split must come from the Surya indices instead.
         ds_time_column: Column name in the flare index to use as the event timestamp.
         ds_time_tolerance: Maximum allowed time offset when matching Surya and DS indices
             (e.g., ``"15min"``). Unmatched entries are dropped.
@@ -34,8 +38,9 @@ class FilamentDataset(HelioNetCDFDataset):
             for causal prediction (predict flares from prior solar state).
 
     Raises:
-        ValueError: If ``filament_index_path`` is not provided, or if no overlap exists
-            between the Surya and DS indices within the specified tolerance.
+        ValueError: If ``filament_index_path`` is not provided, if the catalog has a
+            ``split`` column with no rows matching this dataset's ``phase``, or if no
+            overlap exists between the Surya and DS indices within the specified tolerance.
     """
 
     def __init__(
@@ -66,6 +71,23 @@ class FilamentDataset(HelioNetCDFDataset):
             self.ds_index = pd.read_csv(filament_index_path)
         else:
             raise ValueError("filament_index_path must be provided for FilamentDataset")
+
+        # The train/val split comes from the catalog's ``split`` column, not from the Surya
+        # index. The shipped Surya indices are carved by month and exclude 2012 entirely,
+        # where most of this catalog lives, so both ``train_data_path`` and
+        # ``valid_data_path`` point at the full index — which means this filter is the only
+        # thing keeping the two datasets from being identical. The column is optional so
+        # that a catalog whose events do span the shipped index months still works.
+        if "split" in self.ds_index.columns:
+            available = sorted(self.ds_index["split"].dropna().unique())
+            self.ds_index = self.ds_index.loc[
+                self.ds_index["split"] == self.phase, :
+            ].copy()
+            if len(self.ds_index) == 0:
+                raise ValueError(
+                    f"Filament catalog {filament_index_path} has no rows with "
+                    f"split == '{self.phase}'; split values present: {available}"
+                )
 
         # chirality is the prediction target. hemisphere is kept as passthrough metadata
         # only (see __getitem__) for the Martin's Rule baseline.

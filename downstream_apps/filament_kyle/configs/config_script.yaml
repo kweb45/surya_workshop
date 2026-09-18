@@ -47,7 +47,7 @@ data:
   time_delta_target_minutes: 60   # Step size (minutes) between forecast frames
 
   # -- Downstream label alignment (flare catalog → Surya index) --
-  filament_index_path: ../data/basic_fil_data.csv
+  filament_index_path: ../data/full_fil_data.csv
   ds_time_column: start_time      # Column in the filament catalog used as the event timestamp
   ds_time_tolerance: 2d           # Max allowed gap between catalog and Surya timestamps
   ds_match_direction: forward     # "forward": use solar state *before* the flare (causal)
@@ -102,7 +102,7 @@ data:
   s3_boto3_part_size_mb: 64       # part size in MB (benchmark default: 64)
 
   # -- Development --
-  max_samples: 10                 # Cap dataset size for quick experiments (null = all samples)
+  max_samples: null               # Cap dataset size for quick experiments (null = all samples)
 
 
 # -----------------------------------------------------------------------------
@@ -129,7 +129,8 @@ model:
   init_weights: false
   checkpoint_layers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
   ensemble: null
-  nglo: 1
+  # No nglo key: HelioSpectformer1D derives the backbone's nglo from `pooling`
+  # (1 for class_token, 0 otherwise), so setting it here is an error, not an override.
   time_embedding:
     type: linear        # Options: linear | fourier | perceiver
     n_queries: null     # Required for perceiver; unused otherwise
@@ -148,7 +149,15 @@ model:
     lora_alpha: 8
     lora_dropout: 0.1
     bias: none
-    target_modules: [q_proj, v_proj, k_proj, out_proj, fc1, fc2]
+    # fc1/fc2 in all 10 blocks; attn.qkv/attn.proj in the 8 attention blocks.
+    # These are Surya's own module names. The HuggingFace-style names this config
+    # previously carried ([q_proj, v_proj, k_proj, out_proj]) matched NOTHING in this
+    # backbone, and PEFT only raises when *no* entry matches anything at all -- so the
+    # attention layers were silently never adapted. Dotted names are required: a bare
+    # "proj" would also match the Conv2d patch-embedding tokenizer at
+    # embedding.patch_embed.proj. Never adapted: the spectral blocks' complex_weight,
+    # attn.to_dynamic_projection, and the patch embedding.
+    target_modules: [fc1, fc2, attn.qkv, attn.proj]
 
 
 # -----------------------------------------------------------------------------
@@ -156,7 +165,7 @@ model:
 # -----------------------------------------------------------------------------
 training:
   learning_rate: 0.0001
-  batch_size: 2         # Per-device batch size under DDP
+  batch_size: 1         # Per-device batch size under DDP
   max_epochs: 20        # Can be overridden with --max-epochs at the CLI
   num_workers: 8        # DataLoader worker processes per device (use 0 to debug in-process)
 
@@ -183,7 +192,7 @@ training:
   # >> from your edit or from run-to-run drift. With false, that comparison is not
   # >> meaningful: this config gave 0.060782 and 0.051657 on two identical runs.
   # >> For a one-off check you can leave this file alone and pass --deterministic warn.
-  deterministic: false
+  deterministic: warn
 
   # Caveat worth stating plainly: this buys you REPRODUCIBILITY, not statistical
   # significance. With max_samples: 10 and one epoch the number is still noise — it is
@@ -212,5 +221,5 @@ output:
 # Logging
 # -----------------------------------------------------------------------------
 logging:
-  wandb_project: template_flare_regression
+  wandb_project: filament_chirality
   wandb_entity: null      # WandB team/org name; null to log to your personal account

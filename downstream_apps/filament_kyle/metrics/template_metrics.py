@@ -7,8 +7,9 @@ FlareMetrics defines four metric sets:
                     Defaults to the same MSE as "train_loss"; override it when your task
                     needs a different validation objective.
 - "train_metrics" — non-differentiable metrics logged during training (RRSE).
-- "val_metrics"   — metrics logged at validation for reporting only (MSE + RRSE). These
-                    do NOT influence checkpoint selection — "val_loss" does.
+- "val_metrics"   — metrics logged at validation for reporting only (MSE + RRSE +
+                    binary accuracy). These do NOT influence checkpoint selection —
+                    "val_loss" does.
 
 The __call__ method selects the appropriate metric set based on the mode passed at
 construction time. The dictionary keys returned by each method become the metric names
@@ -22,6 +23,15 @@ import torchmetrics as tm  # Lots of possible metrics in here https://lightning.
 # linear baseline, while targets are always (B, 1). Every metric below flattens both with
 # reshape(-1) rather than squeeze(-1): squeeze is shape-dependent and collapses a
 # batch of one to a 0-d scalar, which then fails to broadcast against a (1,) target.
+
+# Decision threshold for turning the regression output into a dextral/sinistral call.
+# The head is an unbounded nn.Linear trained with MSE against 0/1 targets, so 0.5 is the
+# midpoint between the two class values. Worth revisiting if the catalog stays imbalanced
+# (7:1 dextral in the current train split) -- a lower threshold trades precision on
+# sinistral for recall.
+CHIRALITY_THRESHOLD = 0.5
+
+
 class FlareMetrics:
     def __init__(self, mode: str):
         """
@@ -35,11 +45,14 @@ class FlareMetrics:
 
         # Cache torchmetrics instances once (instead of recreating each call)
         self._rrse = tm.RelativeSquaredError(squared=False)
+        self._accuracy = tm.Accuracy(task="binary")
 
     def _ensure_device(self, preds: torch.Tensor) -> None:
         """Move torchmetrics modules to the same device as ``preds``, if needed."""
         if self._rrse.device != preds.device:
             self._rrse = self._rrse.to(preds.device)
+        if self._accuracy.device != preds.device:
+            self._accuracy = self._accuracy.to(preds.device)
 
     def train_loss(
         self, preds: torch.Tensor, target: torch.Tensor
@@ -148,7 +161,20 @@ class FlareMetrics:
 
         self._ensure_device(preds)
         output_metrics["rrse"] = self._rrse(preds.reshape(-1), target.reshape(-1))
-        output_weights.append(1)            
+        output_weights.append(1)
+
+        # Binary chirality accuracy. Both arguments are thresholded to hard 0/1 labels
+        # before they reach torchmetrics, deliberately rather than passing the raw
+        # regression output: for a binary task torchmetrics infers the input format from
+        # the values it sees, treating a float tensor as probabilities when every element
+        # lies in [0, 1] but as logits (applying sigmoid) as soon as one does not. Since
+        # this head is an unbounded Linear, a single prediction drifting past 1.0 would
+        # silently re-interpret the whole batch and change the reported accuracy.
+        output_metrics["accuracy"] = self._accuracy(
+            (preds.reshape(-1) >= CHIRALITY_THRESHOLD).int(),
+            (target.reshape(-1) >= CHIRALITY_THRESHOLD).int(),
+        )
+        output_weights.append(1)
 
         return output_metrics, output_weights
 
