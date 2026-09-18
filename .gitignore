@@ -231,6 +231,14 @@ wandb/
 # Jupyter AI chat transcripts
 *.chat
 
+# Exception to *.csv above: the filament chirality catalog is an *input* to the
+# filament_kyle app, not a generated artifact. config_script.yaml points at it, so a
+# fresh clone cannot run the app without it, and make_splits.py can only add the split
+# column to an existing catalog -- it cannot regenerate the 34 hand-curated events.
+# Deliberately one path, not data/*.csv: the sibling CSVs in that directory are scratch
+# (hek_flare_catalog.csv alone is 4.9 MB) and should stay ignored.
+!downstream_apps/filament_kyle/data/full_fil_data.csv
+
 # Analysis files
 *.json
 unified_report.md
